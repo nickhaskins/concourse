@@ -609,9 +609,7 @@ all =
                         , attribute <| Attr.attribute "data-team-name" "team"
                         ]
                     |> Query.find
-                        [ class "node"
-                        , attribute <| Attr.attribute "data-tooltip" "job"
-                        ]
+                        [ attribute <| Attr.attribute "data-tooltip" "job" ]
                     |> Query.find
                         [ tag "a" ]
                     |> Query.has

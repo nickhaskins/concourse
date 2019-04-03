@@ -1,11 +1,15 @@
 module Dashboard.DashboardPreview exposing (view)
 
+import Colors
 import Concourse
 import Concourse.BuildStatus
+import Concourse.PipelineStatus exposing (PipelineStatus(..), StatusDetails(..))
+import Dashboard.Styles as Styles
 import Html exposing (Html)
-import Html.Attributes exposing (attribute, class, classList, href)
+import Html.Attributes exposing (attribute, class, classList, href, style)
 import List.Extra exposing (find)
 import Routes
+import Time
 import TopologicalSort exposing (flattenToLayers)
 
 
@@ -53,13 +57,6 @@ viewJobLayer jobs =
 viewJob : Concourse.Job -> Html msg
 viewJob job =
     let
-        jobStatus : String
-        jobStatus =
-            job.finishedBuild
-                |> Maybe.map .status
-                |> Maybe.map Concourse.BuildStatus.show
-                |> Maybe.withDefault "no-builds"
-
         latestBuild : Maybe Concourse.Build
         latestBuild =
             if job.nextBuild == Nothing then
@@ -78,11 +75,38 @@ viewJob job =
                     Routes.buildRoute build
     in
     Html.div
-        [ classList
-            [ ( "node " ++ jobStatus, True )
-            , ( "running", job.nextBuild /= Nothing )
-            , ( "paused", job.paused )
+        (attribute "data-tooltip" job.name :: jobStyle job)
+        [ Html.a
+            [ href <| Routes.toString buildRoute
+            , style "flex-grow" "1"
             ]
-        , attribute "data-tooltip" job.name
+            [ Html.text "" ]
         ]
-        [ Html.a [ href <| Routes.toString buildRoute ] [ Html.text "" ] ]
+
+
+jobStyle : Concourse.Job -> List (Html.Attribute msg)
+jobStyle job =
+    [ style "flex-grow" "1"
+    , style "display" "flex"
+    , style "margin" "2px"
+    ]
+        ++ (if job.paused then
+                [ style "background-color" <|
+                    Colors.statusColor PipelineStatusPaused
+                ]
+
+            else
+                let
+                    finishedBuildStatus =
+                        job.finishedBuild
+                            |> Maybe.map .status
+                            |> Maybe.withDefault Concourse.BuildStatusPending
+
+                    isRunning =
+                        job.nextBuild /= Nothing
+
+                    color =
+                        Colors.buildStatusColor True finishedBuildStatus
+                in
+                Styles.texture "pipeline-running" isRunning color
+           )

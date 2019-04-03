@@ -37,6 +37,7 @@ module Dashboard.Styles exposing
     , showSearchContainer
     , striped
     , teamNameHd
+    , texture
     , topCliIcon
     , visibilityToggle
     , visibilityTooltip
