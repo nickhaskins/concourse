@@ -356,3 +356,8 @@ func streamFileHelper(s interface {
 		Closer: out,
 	}, nil
 }
+
+type fileReadCloser struct {
+	io.Reader
+	io.Closer
+}

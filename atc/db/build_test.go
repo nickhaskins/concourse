@@ -14,7 +14,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Build", func() {
+var _ = FDescribe("Build", func() {
 	var (
 		team db.Team
 	)
@@ -198,11 +198,11 @@ var _ = Describe("Build", func() {
 			Expect(build.Status()).To(Equal(db.BuildStatusSucceeded))
 		})
 
-		It("sets engine metadata to nil", func() {
+		It("clears out the private plan", func() {
 			found, err := build.Reload()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(found).To(BeTrue())
-			Expect(build.PrivatePlan()).To(BeEmpty())
+			Expect(build.PrivatePlan()).To(Equal(atc.Plan{}))
 		})
 
 		It("sets completed to true", func() {
