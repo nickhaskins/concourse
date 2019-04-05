@@ -6,14 +6,13 @@ module DashboardTests exposing
     , defineHoverBehaviour
     , givenDataAndUser
     , givenDataUnauthenticated
-    , iconSelector
     , isColorWithStripes
     , middleGrey
     , white
     )
 
 import Application.Application as Application
-import Common
+import Common exposing (iconSelector)
 import Concourse
 import Concourse.Cli as Cli
 import Dashboard.Dashboard as Dashboard
@@ -3050,16 +3049,6 @@ defineHoverBehaviour { name, setup, query, unhoveredSelector, mouseEnterMsg, mou
                     |> query
                     |> Query.has unhoveredSelector.selector
         ]
-
-
-iconSelector : { size : String, image : String } -> List Selector
-iconSelector { size, image } =
-    [ style "background-image" <| "url(/public/images/" ++ image ++ ")"
-    , style "background-position" "50% 50%"
-    , style "background-repeat" "no-repeat"
-    , style "width" size
-    , style "height" size
-    ]
 
 
 whenOnDashboard : { highDensity : Bool } -> ( Application.Model, List Effects.Effect )

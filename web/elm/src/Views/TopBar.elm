@@ -1,5 +1,6 @@
 module Views.TopBar exposing
-    ( breadcrumbs
+    ( breadcrumbComponent
+    , breadcrumbs
     , concourseLogo
     )
 
@@ -29,14 +30,14 @@ breadcrumbs route =
     <|
         case route of
             Routes.Pipeline { id } ->
-                [ pipelineBreadcumb
+                [ pipelineBreadcrumb
                     { teamName = id.teamName
                     , pipelineName = id.pipelineName
                     }
                 ]
 
             Routes.Build { id } ->
-                [ pipelineBreadcumb
+                [ pipelineBreadcrumb
                     { teamName = id.teamName
                     , pipelineName = id.pipelineName
                     }
@@ -45,7 +46,7 @@ breadcrumbs route =
                 ]
 
             Routes.Resource { id } ->
-                [ pipelineBreadcumb
+                [ pipelineBreadcrumb
                     { teamName = id.teamName
                     , pipelineName = id.pipelineName
                     }
@@ -54,7 +55,7 @@ breadcrumbs route =
                 ]
 
             Routes.Job { id } ->
-                [ pipelineBreadcumb
+                [ pipelineBreadcrumb
                     { teamName = id.teamName
                     , pipelineName = id.pipelineName
                     }
@@ -82,8 +83,8 @@ breadcrumbSeparator =
         [ Html.text "/" ]
 
 
-pipelineBreadcumb : Concourse.PipelineIdentifier -> Html Message
-pipelineBreadcumb pipelineId =
+pipelineBreadcrumb : Concourse.PipelineIdentifier -> Html Message
+pipelineBreadcrumb pipelineId =
     Html.a
         ([ id "breadcrumb-pipeline"
          , href <|

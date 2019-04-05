@@ -1,7 +1,7 @@
 module ResourceTests exposing (all)
 
 import Application.Application as Application
-import Common exposing (queryView)
+import Common exposing (iconSelector, queryView)
 import Concourse
 import Concourse.Pagination exposing (Direction(..))
 import DashboardTests
@@ -9,7 +9,6 @@ import DashboardTests
         ( almostBlack
         , darkGrey
         , defineHoverBehaviour
-        , iconSelector
         , middleGrey
         )
 import Dict

@@ -69,7 +69,8 @@ showSearchInput ( model, effects ) =
                 model.dropdown == Hidden
 
             isMobile =
-                model.screenSize == ScreenSize.Mobile
+                (model.screenSize == ScreenSize.Phone)
+                    || (model.screenSize == ScreenSize.Tablet)
         in
         if isDropDownHidden && isMobile && model.query == "" then
             ( { model | dropdown = Shown Nothing }
@@ -96,7 +97,11 @@ screenResize width model =
         ScreenSize.BigDesktop ->
             { newModel | dropdown = Hidden }
 
-        ScreenSize.Mobile ->
+        ScreenSize.Tablet ->
+            newModel
+
+        ScreenSize.Phone ->
+            -- TODO test this case
             newModel
 
 
@@ -229,7 +234,8 @@ view ({ screenSize, query, dropdown, groups } as params) =
             dropdown == Hidden
 
         isMobile =
-            screenSize == ScreenSize.Mobile
+            (screenSize == ScreenSize.Phone)
+                || (screenSize == ScreenSize.Tablet)
 
         noPipelines =
             groups

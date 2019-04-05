@@ -42,6 +42,7 @@ import Message.TopLevelMessage exposing (TopLevelMessage(..))
 import Pipeline.Styles as Styles
 import RemoteData exposing (WebData)
 import Routes
+import ScreenSize exposing (ScreenSize(..))
 import StrictEvents exposing (onLeftClickOrShiftLeftClick)
 import Svg
 import Svg.Attributes as SvgAttributes
@@ -68,6 +69,7 @@ type alias Model =
         , hideLegendCounter : Float
         , isToggleLoading : Bool
         , hovered : Maybe Hoverable
+        , screenSize : ScreenSize
         }
 
 
@@ -97,10 +99,15 @@ init flags =
             , selectedGroups = flags.selectedGroups
             , isUserMenuExpanded = False
             , hovered = Nothing
+            , screenSize = Desktop
             }
     in
     ( model
-    , [ FetchPipeline flags.pipelineLocator, FetchVersion, ResetPipelineFocus ]
+    , [ FetchPipeline flags.pipelineLocator
+      , FetchVersion
+      , ResetPipelineFocus
+      , GetScreenSize
+      ]
     )
 
 
@@ -269,6 +276,11 @@ handleCallback callback ( model, effects ) =
         VersionFetched (Err _) ->
             ( { model | experiencingTurbulence = True }, effects )
 
+        ScreenResized { viewport } ->
+            ( { model | screenSize = ScreenSize.fromWindowSize viewport.width }
+            , effects
+            )
+
         _ ->
             ( model, effects )
 
@@ -302,6 +314,9 @@ handleDelivery delivery ( model, effects ) =
 
         ClockTicked OneMinute _ ->
             ( model, effects ++ [ FetchVersion ] )
+
+        WindowResized width _ ->
+            ( { model | screenSize = ScreenSize.fromWindowSize width }, effects )
 
         _ ->
             ( model, effects )
@@ -358,6 +373,7 @@ subscriptions =
     , OnClockTick OneSecond
     , OnMouse
     , OnKeyDown
+    , OnWindowResize
     ]
 
 
@@ -368,30 +384,135 @@ documentTitle model =
 
 view : UserState -> Model -> Html Message
 view userState model =
-    let
-        route =
-            Routes.Pipeline
-                { id = model.pipelineLocator
-                , groups = model.selectedGroups
-                }
-    in
     Html.div [ Html.Attributes.style "height" "100%" ]
         [ Html.div
             (id "page-including-top-bar" :: Views.Styles.pageIncludingTopBar)
-            [ Html.div
-                (id "top-bar-app"
-                    :: (Views.Styles.topBar <|
-                            isPaused model.pipeline
+            [ if model.screenSize == Phone then
+                topBarPhone userState model
+
+              else
+                topBarOther userState model
+            , Html.div
+                ([ id "page-below-top-bar"
+                 , style "height" "100%"
+                 , style "box-sizing" "border-box"
+                 ]
+                    ++ (case model.screenSize of
+                            Phone ->
+                                [ style "padding-top" "112px" ]
+
+                            _ ->
+                                [ style "padding-top" "54px" ]
                        )
                 )
-                [ TopBar.concourseLogo
-                , TopBar.breadcrumbs route
-                , viewPinMenu
-                    { pinnedResources = getPinnedResources model
-                    , pipeline = model.pipelineLocator
-                    , isPinMenuExpanded =
-                        model.hovered == Just PinIcon
-                    }
+                [ viewSubPage model ]
+            ]
+        ]
+
+
+topBarPhone : UserState -> Model -> Html Message
+topBarPhone userState model =
+    Html.div
+        (id "top-bar-app"
+            :: (Views.Styles.topBar <|
+                    isPaused model.pipeline
+               )
+            ++ [ style "flex-direction" "column" ]
+        )
+        [ Html.div
+            [ style "display" "flex"
+            , style "justify-content" "space-between"
+            , style "border-bottom" <|
+                "1px solid "
+                    ++ (if isPaused model.pipeline then
+                            Colors.pausedTopbarSeparator
+
+                        else
+                            Colors.background
+                       )
+            ]
+            [ TopBar.concourseLogo
+            , Html.div
+                [ id "login-component", style "max-width" "100%" ]
+                (Login.viewLoginState
+                    userState
+                    model.isUserMenuExpanded
+                    (isPaused model.pipeline)
+                )
+            ]
+        , Html.div
+            [ style "display" "flex"
+            , style "justify-content" "space-between"
+            ]
+            [ Html.div
+                [ style "font-size" "18px"
+                , style "padding" "15px"
+                , style "text-overflow" "ellipsis"
+                , style "overflow" "hidden"
+                , style "white-space" "nowrap"
+                ]
+                [ Html.text
+                    (model.pipeline
+                        |> RemoteData.map .name
+                        |> RemoteData.withDefault
+                            model.pipelineLocator.pipelineName
+                    )
+                ]
+            , Html.div
+                [ style "display" "flex"
+                , style "border-left" <|
+                    "1px solid "
+                        ++ (if isPaused model.pipeline then
+                                Colors.pausedTopbarSeparator
+
+                            else
+                                Colors.background
+                           )
+                ]
+                [ Html.div
+                    ([ id "pin-icon"
+                     , style "position" "relative"
+                     , style "margin" "8.5px"
+                     ]
+                        ++ (if model.hovered == Just PinIcon then
+                                [ style "background-color" Colors.pinHighlight
+                                , style "border-radius" "50%"
+                                ]
+
+                            else
+                                []
+                           )
+                    )
+                  <|
+                    let
+                        numPinnedResources =
+                            List.length <| getPinnedResources model
+                    in
+                    [ if numPinnedResources > 0 then
+                        Html.div
+                            ([ onMouseEnter <| Hover <| Just PinIcon
+                             , onMouseLeave <| Hover Nothing
+                             ]
+                                ++ Styles.pinIcon
+                            )
+                            (Html.div
+                                (id "pin-badge" :: Styles.pinBadge)
+                                [ Html.div []
+                                    [ Html.text <|
+                                        String.fromInt numPinnedResources
+                                    ]
+                                ]
+                                :: viewPinMenuDropdown
+                                    { pinnedResources = getPinnedResources model
+                                    , pipeline = model.pipelineLocator
+                                    , isPinMenuExpanded =
+                                        model.hovered == Just PinIcon
+                                    }
+                            )
+
+                      else
+                        Html.div Styles.pinIcon []
+                    ]
                 , Html.div
                     (id "top-bar-pause-toggle"
                         :: (Styles.pauseToggle <| isPaused model.pipeline)
@@ -408,13 +529,74 @@ view userState model =
                         , isToggleLoading = model.isToggleLoading
                         }
                     ]
-                , Login.view userState model <| isPaused model.pipeline
                 ]
-            , Html.div
-                (id "page-below-top-bar" :: Views.Styles.pageBelowTopBar route)
-                [ viewSubPage model ]
             ]
         ]
+
+
+topBarOther : UserState -> Model -> Html Message
+topBarOther userState model =
+    Html.div
+        (id "top-bar-app"
+            :: (Views.Styles.topBar <|
+                    isPaused model.pipeline
+               )
+            ++ [ style "flex-direction" "row" ]
+        )
+        [ TopBar.concourseLogo
+        , Html.div
+            (id "breadcrumbs"
+                :: Views.Styles.breadcrumbContainer
+                ++ [ style "overflow" "hidden" ]
+            )
+            [ Html.a
+                ([ id "breadcrumb-pipeline"
+                 , href <|
+                    Routes.toString <|
+                        Routes.Pipeline
+                            { id = model.pipelineLocator
+                            , groups = []
+                            }
+                 , style "align-items" "center"
+                 ]
+                    ++ Views.Styles.breadcrumbItem True
+                )
+                (TopBar.breadcrumbComponent "pipeline"
+                    model.pipelineLocator.pipelineName
+                )
+            ]
+        , viewPinMenu
+            { pinnedResources = getPinnedResources model
+            , pipeline = model.pipelineLocator
+            , isPinMenuExpanded =
+                model.hovered == Just PinIcon
+            }
+        , Html.div
+            (id "top-bar-pause-toggle"
+                :: (Styles.pauseToggle <| isPaused model.pipeline)
+            )
+            [ PauseToggle.view "17px"
+                userState
+                { pipeline = model.pipelineLocator
+                , isPaused = isPaused model.pipeline
+                , isToggleHovered =
+                    model.hovered
+                        == (Just <|
+                                PipelineButton model.pipelineLocator
+                           )
+                , isToggleLoading = model.isToggleLoading
+                }
+            ]
+        , Login.view userState model <| isPaused model.pipeline
+        ]
+
+
+route : Model -> Routes.Route
+route model =
+    Routes.Pipeline
+        { id = model.pipelineLocator
+        , groups = model.selectedGroups
+        }
 
 
 viewPinMenu :

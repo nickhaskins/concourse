@@ -2,15 +2,19 @@ module ScreenSize exposing (ScreenSize(..), fromWindowSize)
 
 
 type ScreenSize
-    = Mobile
+    = Phone
+    | Tablet
     | Desktop
     | BigDesktop
 
 
 fromWindowSize : Float -> ScreenSize
 fromWindowSize width =
-    if width < 812 then
-        Mobile
+    if width < 361 then
+        Phone
+
+    else if width < 812 then
+        Tablet
 
     else if width < 1230 then
         Desktop

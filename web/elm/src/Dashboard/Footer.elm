@@ -218,7 +218,11 @@ toggleView highDensity =
 legendSeparator : ScreenSize.ScreenSize -> List (Html Message)
 legendSeparator screenSize =
     case screenSize of
-        ScreenSize.Mobile ->
+        ScreenSize.Phone ->
+            -- TODO test this case
+            []
+
+        ScreenSize.Tablet ->
             []
 
         ScreenSize.Desktop ->

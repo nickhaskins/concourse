@@ -73,7 +73,6 @@ concourseLogo =
     , style "background-position" "50% 50%"
     , style "background-repeat" "no-repeat"
     , style "background-size" "42px 42px"
-    , style "display" "inline-block"
     , style "width" "54px"
     , style "height" "54px"
     ]
@@ -86,7 +85,10 @@ breadcrumbContainer =
 
 breadcrumbComponent : String -> List (Html.Attribute msg)
 breadcrumbComponent componentType =
-    [ style "background-image" <| "url(/public/images/ic-breadcrumb-" ++ componentType ++ ".svg)"
+    [ style "background-image" <|
+        "url(/public/images/ic-breadcrumb-"
+            ++ componentType
+            ++ ".svg)"
     , style "background-repeat" "no-repeat"
     , style "background-size" "contain"
     , style "display" "inline-block"
@@ -99,8 +101,7 @@ breadcrumbComponent componentType =
 
 breadcrumbItem : Bool -> List (Html.Attribute msg)
 breadcrumbItem clickable =
-    [ style "display" "inline-block"
-    , style "vertical-align" "middle"
+    [ style "display" "flex"
     , style "font-size" "18px"
     , style "padding" "0 10px"
     , style "line-height" "54px"

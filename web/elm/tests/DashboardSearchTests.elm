@@ -1,7 +1,7 @@
 module DashboardSearchTests exposing (all)
 
 import Application.Application as Application
-import Common exposing (queryView)
+import Common exposing (context, describe, it, queryView)
 import Concourse
 import Expect exposing (Expectation)
 import Message.Callback as Callback
@@ -12,24 +12,6 @@ import Test.Html.Query as Query
 import Test.Html.Selector exposing (class, id, style, text)
 import Time
 import Url
-
-
-describe : String -> model -> List (model -> Test) -> Test
-describe description beforeEach subTests =
-    Test.describe description
-        (subTests |> List.map (\f -> f beforeEach))
-
-
-context : String -> (a -> b) -> List (b -> Test) -> (a -> Test)
-context description setup subTests beforeEach =
-    Test.describe description
-        (subTests |> List.map (\f -> f <| setup beforeEach))
-
-
-it : String -> (model -> Expectation) -> model -> Test
-it desc expectationFunc model =
-    Test.test desc <|
-        \_ -> expectationFunc model
 
 
 all : Test

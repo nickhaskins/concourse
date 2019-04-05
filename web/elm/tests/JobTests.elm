@@ -1,14 +1,13 @@
 module JobTests exposing (all)
 
 import Application.Application as Application
-import Common exposing (queryView)
+import Common exposing (iconSelector, queryView)
 import Concourse exposing (Build, BuildId, BuildStatus(..), Job)
 import Concourse.Pagination exposing (Direction(..))
 import DashboardTests
     exposing
         ( darkGrey
         , defineHoverBehaviour
-        , iconSelector
         , middleGrey
         )
 import Dict

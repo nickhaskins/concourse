@@ -395,7 +395,8 @@ view userState model =
                             model.dropdown == Hidden
 
                         isMobile =
-                            model.screenSize == ScreenSize.Mobile
+                            (model.screenSize == ScreenSize.Phone)
+                                || (model.screenSize == ScreenSize.Tablet)
                     in
                     if
                         not model.highDensity
