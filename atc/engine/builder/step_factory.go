@@ -10,7 +10,6 @@ import (
 	"github.com/concourse/concourse/atc/creds"
 	"github.com/concourse/concourse/atc/db"
 	"github.com/concourse/concourse/atc/exec"
-	"github.com/concourse/concourse/atc/exec/artifact"
 	"github.com/concourse/concourse/atc/resource"
 	"github.com/concourse/concourse/atc/worker"
 )
@@ -148,7 +147,9 @@ func (factory *stepFactory) TaskStep(
 	containerMetadata db.ContainerMetadata,
 	delegate exec.TaskDelegate,
 ) exec.Step {
-	workingDirectory := factory.taskWorkingDirectory(artifact.Name(plan.Task.Name))
+	sum := sha1.Sum([]byte(plan.Task.Name))
+	workingDirectory := filepath.Join("/tmp", "build", fmt.Sprintf("%x", sum[:4]))
+
 	containerMetadata.WorkingDirectory = workingDirectory
 
 	credMgrVariables := factory.variablesFactory.NewVariables(build.TeamName(), build.PipelineName())
@@ -221,9 +222,4 @@ func (factory *stepFactory) ArtifactOutputStep(
 	delegate exec.BuildStepDelegate,
 ) exec.Step {
 	return exec.NewArtifactOutputStep(plan, build, factory.client, delegate)
-}
-
-func (factory *stepFactory) taskWorkingDirectory(sourceName artifact.Name) string {
-	sum := sha1.Sum([]byte(sourceName))
-	return filepath.Join("/tmp", "build", fmt.Sprintf("%x", sum[:4]))
 }

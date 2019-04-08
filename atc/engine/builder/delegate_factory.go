@@ -220,13 +220,10 @@ func newDBEventWriter(build db.Build, origin event.Origin, clock clock.Clock) io
 }
 
 type dbEventWriter struct {
-	build db.Build
-
-	origin event.Origin
-
+	build    db.Build
+	origin   event.Origin
+	clock    clock.Clock
 	dangling []byte
-
-	clock clock.Clock
 }
 
 func (writer *dbEventWriter) Write(data []byte) (int, error) {

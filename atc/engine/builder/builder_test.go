@@ -1,97 +1,74 @@
 package builder_test
 
 import (
-	"code.cloudfoundry.org/lager/lagertest"
 	"github.com/concourse/concourse/atc"
 	"github.com/concourse/concourse/atc/db"
 	"github.com/concourse/concourse/atc/db/dbfakes"
-	"github.com/concourse/concourse/atc/engine"
-	"github.com/concourse/concourse/atc/engine/enginefakes"
-	"github.com/concourse/concourse/atc/exec/execfakes"
+	"github.com/concourse/concourse/atc/engine/builder"
+	"github.com/concourse/concourse/atc/engine/builder/builderfakes"
+	"github.com/concourse/concourse/atc/exec"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
+type StepBuilder interface {
+	BuildStep(db.Build) exec.Step
+}
+
 var _ = Describe("Builder", func() {
 	var (
-		fakeFactory         *execfakes.FakeFactory
-		fakeDelegateFactory *enginefakes.FakeBuildDelegateFactory
-		logger              *lagertest.TestLogger
+		fakeBuild           *dbfakes.FakeBuild
+		fakeStepFactory     *builderfakes.FakeStepFactory
+		fakeDelegateFactory *builderfakes.FakeDelegateFactory
 
-		execEngine engine.Engine
+		planFactory atc.PlanFactory
+		stepBuilder StepBuilder
 
-		expectedTeamID     = 1111
-		expectedPipelineID = 2222
-		expectedJobID      = 3333
-		expectedBuildID    = 4444
+		expectedPlan     atc.Plan
+		expectedMetadata builder.StepMetadata
+		// step             exec.Step
 	)
 
 	BeforeEach(func() {
-		fakeFactory = new(execfakes.FakeFactory)
-		fakeDelegateFactory = new(enginefakes.FakeBuildDelegateFactory)
-		logger = lagertest.NewTestLogger("test")
+		fakeBuild = new(dbfakes.FakeBuild)
+		fakeBuild.IDReturns(4444)
+		fakeBuild.NameReturns("42")
+		fakeBuild.JobNameReturns("some-job")
+		fakeBuild.JobIDReturns(3333)
+		fakeBuild.PipelineNameReturns("some-pipeline")
+		fakeBuild.PipelineIDReturns(2222)
+		fakeBuild.TeamNameReturns("some-team")
+		fakeBuild.TeamIDReturns(1111)
 
-		execEngine = engine.NewExecEngine(
-			fakeFactory,
+		expectedMetadata = builder.StepMetadata{
+			BuildID:      4444,
+			BuildName:    "42",
+			JobName:      "some-job",
+			PipelineName: "some-pipeline",
+			TeamName:     "some-team",
+			ExternalURL:  "http://example.com",
+		}
+
+		fakeStepFactory = new(builderfakes.FakeStepFactory)
+		fakeDelegateFactory = new(builderfakes.FakeDelegateFactory)
+
+		stepBuilder = builder.NewStepBuilder(
+			fakeStepFactory,
 			fakeDelegateFactory,
 			"http://example.com",
 		)
+
+		planFactory = atc.NewPlanFactory(123)
 	})
 
-	Describe("Resume", func() {
-		var (
-			fakeDelegate *enginefakes.FakeBuildDelegate
+	Describe("BuildStep", func() {
 
-			dbBuild          *dbfakes.FakeBuild
-			expectedMetadata engine.StepMetadata
+		JustBeforeEach(func() {
+			fakeBuild.PrivatePlanReturns(expectedPlan)
 
-			outputPlan atc.Plan
-
-			build engine.Build
-
-			inputStep  *execfakes.FakeStep
-			taskStep   *execfakes.FakeStep
-			outputStep *execfakes.FakeStep
-
-			planFactory atc.PlanFactory
-		)
-
-		BeforeEach(func() {
-			planFactory = atc.NewPlanFactory(123)
-
-			dbBuild = new(dbfakes.FakeBuild)
-			dbBuild.IDReturns(expectedBuildID)
-			dbBuild.NameReturns("42")
-			dbBuild.JobNameReturns("some-job")
-			dbBuild.JobIDReturns(expectedJobID)
-			dbBuild.PipelineNameReturns("some-pipeline")
-			dbBuild.PipelineIDReturns(expectedPipelineID)
-			dbBuild.TeamNameReturns("some-team")
-			dbBuild.TeamIDReturns(expectedTeamID)
-
-			expectedMetadata = engine.StepMetadata{
-				BuildID:      expectedBuildID,
-				BuildName:    "42",
-				JobName:      "some-job",
-				PipelineName: "some-pipeline",
-				TeamName:     "some-team",
-				ExternalURL:  "http://example.com",
-			}
-
-			fakeDelegate = new(enginefakes.FakeBuildDelegate)
-			fakeDelegateFactory.DelegateReturns(fakeDelegate)
-
-			inputStep = new(execfakes.FakeStep)
-			inputStep.SucceededReturns(true)
-			fakeFactory.GetReturns(inputStep)
-
-			taskStep = new(execfakes.FakeStep)
-			taskStep.SucceededReturns(true)
-			fakeFactory.TaskReturns(taskStep)
-
-			outputStep = new(execfakes.FakeStep)
-			outputStep.SucceededReturns(true)
-			fakeFactory.PutReturns(outputStep)
+			stepBuilder.BuildStep(fakeBuild)
+			// step = stepBuilder.BuildStep(fakeBuild)
+			// Expect(step).NotTo(BeNil())
 		})
 
 		Describe("with a putget in an aggregate", func() {
@@ -119,7 +96,7 @@ var _ = Describe("Builder", func() {
 					Params:   atc.Params{"some": "params-2"},
 				})
 
-				outputPlan = planFactory.NewPlan(atc.AggregatePlan{
+				expectedPlan = planFactory.NewPlan(atc.AggregatePlan{
 					planFactory.NewPlan(atc.OnSuccessPlan{
 						Step: putPlan,
 						Next: dependentGetPlan,
@@ -129,48 +106,37 @@ var _ = Describe("Builder", func() {
 						Next: otherDependentGetPlan,
 					}),
 				})
-
-				dbBuild.PrivatePlanReturns(outputPlan)
 			})
 
 			Context("constructing outputs", func() {
 				It("constructs the put correctly", func() {
-					var err error
-					build, err = execEngine.LookupBuild(logger, dbBuild)
-					Expect(err).NotTo(HaveOccurred())
-
-					build.Resume(logger)
-					Expect(fakeFactory.PutCallCount()).To(Equal(2))
-
-					logger, plan, build, stepMetadata, containerMetadata, _ := fakeFactory.PutArgsForCall(0)
-					Expect(logger).NotTo(BeNil())
-					Expect(build).To(Equal(dbBuild))
+					plan, build, stepMetadata, containerMetadata, _ := fakeStepFactory.PutStepArgsForCall(0)
+					Expect(build).To(Equal(fakeBuild))
 					Expect(plan).To(Equal(putPlan))
 					Expect(stepMetadata).To(Equal(expectedMetadata))
 					Expect(containerMetadata).To(Equal(db.ContainerMetadata{
 						Type:         db.ContainerTypePut,
 						StepName:     "some-put",
-						PipelineID:   expectedPipelineID,
+						PipelineID:   2222,
 						PipelineName: "some-pipeline",
-						JobID:        expectedJobID,
+						JobID:        3333,
 						JobName:      "some-job",
-						BuildID:      expectedBuildID,
+						BuildID:      4444,
 						BuildName:    "42",
 					}))
 
-					logger, plan, build, stepMetadata, containerMetadata, _ = fakeFactory.PutArgsForCall(1)
-					Expect(logger).NotTo(BeNil())
-					Expect(build).To(Equal(dbBuild))
+					plan, build, stepMetadata, containerMetadata, _ = fakeStepFactory.PutStepArgsForCall(1)
+					Expect(build).To(Equal(fakeBuild))
 					Expect(plan).To(Equal(otherPutPlan))
 					Expect(stepMetadata).To(Equal(expectedMetadata))
 					Expect(containerMetadata).To(Equal(db.ContainerMetadata{
 						Type:         db.ContainerTypePut,
 						StepName:     "some-put-2",
-						PipelineID:   expectedPipelineID,
+						PipelineID:   2222,
 						PipelineName: "some-pipeline",
-						JobID:        expectedJobID,
+						JobID:        3333,
 						JobName:      "some-job",
-						BuildID:      expectedBuildID,
+						BuildID:      4444,
 						BuildName:    "42",
 					}))
 				})
@@ -184,10 +150,9 @@ var _ = Describe("Builder", func() {
 				aggregatePlan atc.Plan
 				doPlan        atc.Plan
 				timeoutPlan   atc.Plan
-				retryPlan     atc.Plan
 				retryPlanTwo  atc.Plan
-				err           error
 			)
+
 			BeforeEach(func() {
 				getPlan = planFactory.NewPlan(atc.GetPlan{
 					Name:     "some-get",
@@ -218,29 +183,20 @@ var _ = Describe("Builder", func() {
 					Duration: "1m",
 				})
 
-				retryPlan = planFactory.NewPlan(atc.RetryPlan{
+				expectedPlan = planFactory.NewPlan(atc.RetryPlan{
 					getPlan,
 					timeoutPlan,
 					getPlan,
 				})
-
-				dbBuild.PrivatePlanReturns(retryPlan)
-
-				build, err = execEngine.LookupBuild(logger, dbBuild)
-				Expect(err).NotTo(HaveOccurred())
-				build.Resume(logger)
-				Expect(fakeFactory.GetCallCount()).To(Equal(2))
-				Expect(fakeFactory.TaskCallCount()).To(Equal(2))
 			})
 
 			It("constructs the retry correctly", func() {
-				Expect(*retryPlan.Retry).To(HaveLen(3))
+				Expect(*expectedPlan.Retry).To(HaveLen(3))
 			})
 
 			It("constructs the first get correctly", func() {
-				logger, plan, build, stepMetadata, containerMetadata, _ := fakeFactory.GetArgsForCall(0)
-				Expect(logger).NotTo(BeNil())
-				Expect(build).To(Equal(dbBuild))
+				plan, build, stepMetadata, containerMetadata, _ := fakeStepFactory.GetStepArgsForCall(0)
+				Expect(build).To(Equal(fakeBuild))
 				expectedPlan := getPlan
 				expectedPlan.Attempts = []int{1}
 				Expect(plan).To(Equal(expectedPlan))
@@ -248,20 +204,19 @@ var _ = Describe("Builder", func() {
 				Expect(containerMetadata).To(Equal(db.ContainerMetadata{
 					Type:         db.ContainerTypeGet,
 					StepName:     "some-get",
-					PipelineID:   expectedPipelineID,
+					PipelineID:   2222,
 					PipelineName: "some-pipeline",
-					JobID:        expectedJobID,
+					JobID:        3333,
 					JobName:      "some-job",
-					BuildID:      expectedBuildID,
+					BuildID:      4444,
 					BuildName:    "42",
 					Attempt:      "1",
 				}))
 			})
 
 			It("constructs the second get correctly", func() {
-				logger, plan, build, stepMetadata, containerMetadata, _ := fakeFactory.GetArgsForCall(1)
-				Expect(logger).NotTo(BeNil())
-				Expect(build).To(Equal(dbBuild))
+				plan, build, stepMetadata, containerMetadata, _ := fakeStepFactory.GetStepArgsForCall(1)
+				Expect(build).To(Equal(fakeBuild))
 				expectedPlan := getPlan
 				expectedPlan.Attempts = []int{3}
 				Expect(plan).To(Equal(expectedPlan))
@@ -269,11 +224,11 @@ var _ = Describe("Builder", func() {
 				Expect(containerMetadata).To(Equal(db.ContainerMetadata{
 					Type:         db.ContainerTypeGet,
 					StepName:     "some-get",
-					PipelineID:   expectedPipelineID,
+					PipelineID:   2222,
 					PipelineName: "some-pipeline",
-					JobID:        expectedJobID,
+					JobID:        3333,
 					JobName:      "some-job",
-					BuildID:      expectedBuildID,
+					BuildID:      4444,
 					BuildName:    "42",
 					Attempt:      "3",
 				}))
@@ -284,38 +239,36 @@ var _ = Describe("Builder", func() {
 			})
 
 			It("constructs nested steps correctly", func() {
-				logger, plan, build, containerMetadata, _ := fakeFactory.TaskArgsForCall(0)
-				Expect(logger).NotTo(BeNil())
-				Expect(build).To(Equal(dbBuild))
+				plan, build, containerMetadata, _ := fakeStepFactory.TaskStepArgsForCall(0)
+				Expect(build).To(Equal(fakeBuild))
 				expectedPlan := taskPlan
 				expectedPlan.Attempts = []int{2, 1}
 				Expect(plan).To(Equal(expectedPlan))
 				Expect(containerMetadata).To(Equal(db.ContainerMetadata{
 					Type:         db.ContainerTypeTask,
 					StepName:     "some-task",
-					PipelineID:   expectedPipelineID,
+					PipelineID:   2222,
 					PipelineName: "some-pipeline",
-					JobID:        expectedJobID,
+					JobID:        3333,
 					JobName:      "some-job",
-					BuildID:      expectedBuildID,
+					BuildID:      4444,
 					BuildName:    "42",
 					Attempt:      "2.1",
 				}))
 
-				logger, plan, build, containerMetadata, _ = fakeFactory.TaskArgsForCall(1)
-				Expect(logger).NotTo(BeNil())
-				Expect(build).To(Equal(dbBuild))
+				plan, build, containerMetadata, _ = fakeStepFactory.TaskStepArgsForCall(1)
+				Expect(build).To(Equal(fakeBuild))
 				expectedPlan = taskPlan
 				expectedPlan.Attempts = []int{2, 2}
 				Expect(plan).To(Equal(expectedPlan))
 				Expect(containerMetadata).To(Equal(db.ContainerMetadata{
 					Type:         db.ContainerTypeTask,
 					StepName:     "some-task",
-					PipelineID:   expectedPipelineID,
+					PipelineID:   2222,
 					PipelineName: "some-pipeline",
-					JobID:        expectedJobID,
+					JobID:        3333,
 					JobName:      "some-job",
-					BuildID:      expectedBuildID,
+					BuildID:      4444,
 					BuildName:    "42",
 					Attempt:      "2.2",
 				}))
@@ -324,7 +277,6 @@ var _ = Describe("Builder", func() {
 
 		Context("with a plan where conditional steps are inside retries", func() {
 			var (
-				retryPlan     atc.Plan
 				onAbortPlan   atc.Plan
 				onErrorPlan   atc.Plan
 				onSuccessPlan atc.Plan
@@ -333,6 +285,7 @@ var _ = Describe("Builder", func() {
 				leafPlan      atc.Plan
 				err           error
 			)
+
 			BeforeEach(func() {
 				leafPlan = planFactory.NewPlan(atc.TaskPlan{
 					Name:       "some-task",
@@ -366,32 +319,29 @@ var _ = Describe("Builder", func() {
 					Next: leafPlan,
 				})
 
-				retryPlan = planFactory.NewPlan(atc.RetryPlan{
+				expectedPlan = planFactory.NewPlan(atc.RetryPlan{
 					ensurePlan,
 				})
-
-				build, err = execEngine.LookupBuild(logger, dbBuild)
-				Expect(err).NotTo(HaveOccurred())
-				build.Resume(logger)
-				Expect(fakeFactory.TaskCallCount()).To(Equal(6))
 			})
 
 			It("constructs nested steps correctly", func() {
-				_, _, _, containerMetadata, _ := fakeFactory.TaskArgsForCall(0)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fakeStepFactory.TaskStepCallCount()).To(Equal(6))
+
+				_, _, containerMetadata, _ := fakeStepFactory.TaskStepArgsForCall(0)
 				Expect(containerMetadata.Attempt).To(Equal("1"))
-				_, _, _, containerMetadata, _ = fakeFactory.TaskArgsForCall(1)
+				_, _, containerMetadata, _ = fakeStepFactory.TaskStepArgsForCall(1)
 				Expect(containerMetadata.Attempt).To(Equal("1"))
-				_, _, _, containerMetadata, _ = fakeFactory.TaskArgsForCall(2)
+				_, _, containerMetadata, _ = fakeStepFactory.TaskStepArgsForCall(2)
 				Expect(containerMetadata.Attempt).To(Equal("1"))
-				_, _, _, containerMetadata, _ = fakeFactory.TaskArgsForCall(3)
+				_, _, containerMetadata, _ = fakeStepFactory.TaskStepArgsForCall(3)
 				Expect(containerMetadata.Attempt).To(Equal("1"))
-				_, _, _, containerMetadata, _ = fakeFactory.TaskArgsForCall(4)
+				_, _, containerMetadata, _ = fakeStepFactory.TaskStepArgsForCall(4)
 				Expect(containerMetadata.Attempt).To(Equal("1"))
 			})
 		})
 
 		Context("with a basic plan", func() {
-			var expectedPlan atc.Plan
 
 			Context("that contains inputs", func() {
 				BeforeEach(func() {
@@ -405,78 +355,51 @@ var _ = Describe("Builder", func() {
 						Params:   atc.Params{"some": "params"},
 					})
 
-					dbBuild.PrivatePlanReturns(expectedPlan)
+					fakeBuild.PrivatePlanReturns(expectedPlan)
 				})
 
 				It("constructs inputs correctly", func() {
-					var err error
-					build, err := execEngine.LookupBuild(logger, dbBuild, expectedPlan)
-					Expect(err).NotTo(HaveOccurred())
-
-					build.Resume(logger)
-					Expect(fakeFactory.GetCallCount()).To(Equal(1))
-
-					logger, plan, dBuild, stepMetadata, containerMetadata, _ := fakeFactory.GetArgsForCall(0)
-					Expect(logger).NotTo(BeNil())
-					Expect(dBuild).To(Equal(dbBuild))
+					plan, dBuild, stepMetadata, containerMetadata, _ := fakeStepFactory.GetStepArgsForCall(0)
+					Expect(dBuild).To(Equal(fakeBuild))
 					Expect(plan).To(Equal(expectedPlan))
 					Expect(stepMetadata).To(Equal(expectedMetadata))
 					Expect(containerMetadata).To(Equal(db.ContainerMetadata{
 						Type:         db.ContainerTypeGet,
 						StepName:     "some-input",
-						PipelineID:   expectedPipelineID,
+						PipelineID:   2222,
 						PipelineName: "some-pipeline",
-						JobID:        expectedJobID,
+						JobID:        3333,
 						JobName:      "some-job",
-						BuildID:      expectedBuildID,
+						BuildID:      4444,
 						BuildName:    "42",
 					}))
 				})
 			})
 
 			Context("that contains tasks", func() {
-				var (
-					inputMapping  map[string]string
-					outputMapping map[string]string
-					taskPlan      atc.TaskPlan
-				)
-
 				BeforeEach(func() {
-					inputMapping = map[string]string{"foo": "bar"}
-					outputMapping = map[string]string{"baz": "qux"}
-
-					taskPlan = atc.TaskPlan{
+					expectedPlan = planFactory.NewPlan(atc.TaskPlan{
 						Name:          "some-task",
 						ConfigPath:    "some-input/build.yml",
-						InputMapping:  inputMapping,
-						OutputMapping: outputMapping,
-					}
-				})
+						InputMapping:  map[string]string{"foo": "bar"},
+						OutputMapping: map[string]string{"baz": "qux"},
+					})
 
-				JustBeforeEach(func() {
-					expectedPlan = planFactory.NewPlan(taskPlan)
+					fakeBuild.PrivatePlanReturns(expectedPlan)
 				})
 
 				It("constructs tasks correctly", func() {
-					var err error
-					build, err = execEngine.LookupBuild(logger, dbBuild, expectedPlan)
-					Expect(err).NotTo(HaveOccurred())
-
-					build.Resume(logger)
-					Expect(fakeFactory.TaskCallCount()).To(Equal(1))
-
-					logger, plan, build, containerMetadata, _ := fakeFactory.TaskArgsForCall(0)
-					Expect(logger).NotTo(BeNil())
-					Expect(build).To(Equal(dbBuild))
+					plan, build, containerMetadata, _ := fakeStepFactory.TaskStepArgsForCall(0)
+					Expect(build).To(Equal(fakeBuild))
 					Expect(plan).To(Equal(expectedPlan))
 					Expect(containerMetadata).To(Equal(db.ContainerMetadata{
 						Type:         db.ContainerTypeTask,
 						StepName:     "some-task",
-						PipelineID:   expectedPipelineID,
+						PipelineID:   2222,
 						PipelineName: "some-pipeline",
-						JobID:        expectedJobID,
+						JobID:        3333,
 						JobName:      "some-job",
-						BuildID:      expectedBuildID,
+						BuildID:      4444,
 						BuildName:    "42",
 					}))
 				})
@@ -484,7 +407,6 @@ var _ = Describe("Builder", func() {
 
 			Context("that contains outputs", func() {
 				var (
-					expectedPlan     atc.Plan
 					putPlan          atc.Plan
 					dependentGetPlan atc.Plan
 				)
@@ -498,6 +420,7 @@ var _ = Describe("Builder", func() {
 						Source:   atc.Source{"some": "source"},
 						Params:   atc.Params{"some": "params"},
 					})
+
 					dependentGetPlan = planFactory.NewPlan(atc.GetPlan{
 						Name:        "some-get",
 						Resource:    "some-input-resource",
@@ -515,144 +438,247 @@ var _ = Describe("Builder", func() {
 				})
 
 				It("constructs the put correctly", func() {
-					var err error
-					build, err = execEngine.LookupBuild(logger, dbBuild, expectedPlan)
-					Expect(err).NotTo(HaveOccurred())
-
-					build.Resume(logger)
-					Expect(fakeFactory.PutCallCount()).To(Equal(1))
-
-					logger, plan, build, stepMetadata, containerMetadata, _ := fakeFactory.PutArgsForCall(0)
-					Expect(logger).NotTo(BeNil())
-					Expect(build).To(Equal(dbBuild))
+					plan, build, stepMetadata, containerMetadata, _ := fakeStepFactory.PutStepArgsForCall(0)
+					Expect(build).To(Equal(fakeBuild))
 					Expect(plan).To(Equal(putPlan))
 					Expect(stepMetadata).To(Equal(expectedMetadata))
 					Expect(containerMetadata).To(Equal(db.ContainerMetadata{
 						Type:         db.ContainerTypePut,
 						StepName:     "some-put",
-						PipelineID:   expectedPipelineID,
+						PipelineID:   2222,
 						PipelineName: "some-pipeline",
-						JobID:        expectedJobID,
+						JobID:        3333,
 						JobName:      "some-job",
-						BuildID:      expectedBuildID,
+						BuildID:      4444,
 						BuildName:    "42",
 					}))
 				})
 
 				It("constructs the dependent get correctly", func() {
-					var err error
-					build, err = execEngine.LookupBuild(logger, dbBuild, expectedPlan)
-					Expect(err).NotTo(HaveOccurred())
-
-					build.Resume(logger)
-					Expect(fakeFactory.GetCallCount()).To(Equal(1))
-
-					logger, plan, build, stepMetadata, containerMetadata, _ := fakeFactory.GetArgsForCall(0)
-					Expect(logger).NotTo(BeNil())
-					Expect(build).To(Equal(dbBuild))
+					plan, build, stepMetadata, containerMetadata, _ := fakeStepFactory.GetStepArgsForCall(0)
+					Expect(build).To(Equal(fakeBuild))
 					Expect(plan).To(Equal(dependentGetPlan))
 					Expect(stepMetadata).To(Equal(expectedMetadata))
 					Expect(containerMetadata).To(Equal(db.ContainerMetadata{
 						Type:         db.ContainerTypeGet,
 						StepName:     "some-get",
-						PipelineID:   expectedPipelineID,
+						PipelineID:   2222,
 						PipelineName: "some-pipeline",
-						JobID:        expectedJobID,
+						JobID:        3333,
 						JobName:      "some-job",
-						BuildID:      expectedBuildID,
+						BuildID:      4444,
 						BuildName:    "42",
 					}))
 				})
 			})
 		})
-	})
 
-	Describe("LookupBuild", func() {
-		var dbBuild *dbfakes.FakeBuild
-
-		BeforeEach(func() {
-			dbBuild = new(dbfakes.FakeBuild)
-			dbBuild.IDReturns(expectedBuildID)
-			dbBuild.NameReturns("42")
-			dbBuild.JobNameReturns("some-job")
-			dbBuild.JobIDReturns(expectedJobID)
-			dbBuild.PipelineNameReturns("some-pipeline")
-			dbBuild.PipelineIDReturns(expectedPipelineID)
-			dbBuild.TeamNameReturns("some-team")
-			dbBuild.TeamIDReturns(expectedTeamID)
-		})
-
-		Context("when the build has a get step", func() {
-			BeforeEach(func() {
-				dbBuild.PrivatePlanReturns(`{
-							"id": "47",
-							"attempts": [1],
-							"get": {
-								"name": "some-get",
-								"resource": "some-input-resource",
-								"type": "get",
-								"source": {"some": "source"},
-								"params": {"some": "params"},
-								"pipeline_id": 2222
-							}
-						}`,
+		Context("running hooked composes", func() {
+			Context("with all the hooks", func() {
+				var (
+					inputPlan          atc.Plan
+					failureTaskPlan    atc.Plan
+					successTaskPlan    atc.Plan
+					completionTaskPlan atc.Plan
+					nextTaskPlan       atc.Plan
 				)
 
-				fakeDelegate := new(enginefakes.FakeBuildDelegate)
-				fakeDelegateFactory.DelegateReturns(fakeDelegate)
+				BeforeEach(func() {
+					inputPlan = planFactory.NewPlan(atc.GetPlan{
+						Name: "some-input",
+					})
+					failureTaskPlan = planFactory.NewPlan(atc.TaskPlan{
+						Name:   "some-failure-task",
+						Config: &atc.TaskConfig{},
+					})
+					successTaskPlan = planFactory.NewPlan(atc.TaskPlan{
+						Name:   "some-success-task",
+						Config: &atc.TaskConfig{},
+					})
+					completionTaskPlan = planFactory.NewPlan(atc.TaskPlan{
+						Name:   "some-completion-task",
+						Config: &atc.TaskConfig{},
+					})
+					nextTaskPlan = planFactory.NewPlan(atc.TaskPlan{
+						Name:   "some-next-task",
+						Config: &atc.TaskConfig{},
+					})
 
-				inputStep := new(execfakes.FakeStep)
-				inputStep.SucceededReturns(true)
-				fakeFactory.GetReturns(inputStep)
-			})
+					expectedPlan = planFactory.NewPlan(atc.OnSuccessPlan{
+						Step: planFactory.NewPlan(atc.EnsurePlan{
+							Step: planFactory.NewPlan(atc.OnSuccessPlan{
+								Step: planFactory.NewPlan(atc.OnFailurePlan{
+									Step: inputPlan,
+									Next: failureTaskPlan,
+								}),
+								Next: successTaskPlan,
+							}),
+							Next: completionTaskPlan,
+						}),
+						Next: nextTaskPlan,
+					})
+				})
 
-			It("constructs the get correctly", func() {
-				foundBuild, err := execEngine.LookupBuild(logger, dbBuild)
-				Expect(err).NotTo(HaveOccurred())
+				It("constructs the step correctly", func() {
+					Expect(fakeStepFactory.GetStepCallCount()).To(Equal(1))
+					plan, build, stepMetadata, containerMetadata, _ := fakeStepFactory.GetStepArgsForCall(0)
+					Expect(build).To(Equal(fakeBuild))
+					Expect(plan).To(Equal(inputPlan))
+					Expect(stepMetadata).To(Equal(expectedMetadata))
+					Expect(containerMetadata).To(Equal(db.ContainerMetadata{
+						PipelineID:   2222,
+						PipelineName: "some-pipeline",
+						JobID:        3333,
+						JobName:      "some-job",
+						BuildID:      4444,
+						BuildName:    "42",
+						StepName:     "some-input",
+						Type:         db.ContainerTypeGet,
+					}))
+				})
 
-				foundBuild.Resume(logger)
-				Expect(fakeFactory.GetCallCount()).To(Equal(1))
-				logger, plan, build, stepMetadata, containerMetadata, _ := fakeFactory.GetArgsForCall(0)
-				Expect(logger).NotTo(BeNil())
-				Expect(build).To(Equal(dbBuild))
-				Expect(plan.ID).To(Equal(atc.PlanID("47")))
-				Expect(stepMetadata).To(Equal(engine.StepMetadata{
-					BuildID:      expectedBuildID,
-					BuildName:    "42",
-					JobName:      "some-job",
-					PipelineName: "some-pipeline",
-					TeamName:     "some-team",
-					ExternalURL:  "http://example.com",
-				}))
-				Expect(containerMetadata).To(Equal(db.ContainerMetadata{
-					Type:         db.ContainerTypeGet,
-					StepName:     "some-get",
-					PipelineID:   expectedPipelineID,
-					PipelineName: "some-pipeline",
-					JobID:        expectedJobID,
-					JobName:      "some-job",
-					BuildID:      expectedBuildID,
-					BuildName:    "42",
-					Attempt:      "1",
-				}))
+				It("constructs the completion hook correctly", func() {
+					Expect(fakeStepFactory.TaskStepCallCount()).To(Equal(4))
+					plan, build, containerMetadata, _ := fakeStepFactory.TaskStepArgsForCall(2)
+					Expect(build).To(Equal(fakeBuild))
+					Expect(plan).To(Equal(completionTaskPlan))
+					Expect(containerMetadata).To(Equal(db.ContainerMetadata{
+						PipelineID:   2222,
+						PipelineName: "some-pipeline",
+						JobID:        3333,
+						JobName:      "some-job",
+						BuildID:      4444,
+						BuildName:    "42",
+						StepName:     "some-completion-task",
+						Type:         db.ContainerTypeTask,
+					}))
+				})
+
+				It("constructs the failure hook correctly", func() {
+					Expect(fakeStepFactory.TaskStepCallCount()).To(Equal(4))
+					plan, build, containerMetadata, _ := fakeStepFactory.TaskStepArgsForCall(0)
+					Expect(build).To(Equal(fakeBuild))
+					Expect(plan).To(Equal(failureTaskPlan))
+					Expect(containerMetadata).To(Equal(db.ContainerMetadata{
+						PipelineID:   2222,
+						PipelineName: "some-pipeline",
+						JobID:        3333,
+						JobName:      "some-job",
+						BuildID:      4444,
+						BuildName:    "42",
+						StepName:     "some-failure-task",
+						Type:         db.ContainerTypeTask,
+					}))
+				})
+
+				It("constructs the success hook correctly", func() {
+					Expect(fakeStepFactory.TaskStepCallCount()).To(Equal(4))
+					plan, build, containerMetadata, _ := fakeStepFactory.TaskStepArgsForCall(1)
+					Expect(build).To(Equal(fakeBuild))
+					Expect(plan).To(Equal(successTaskPlan))
+					Expect(containerMetadata).To(Equal(db.ContainerMetadata{
+						PipelineID:   2222,
+						PipelineName: "some-pipeline",
+						JobID:        3333,
+						JobName:      "some-job",
+						BuildID:      4444,
+						BuildName:    "42",
+						StepName:     "some-success-task",
+						Type:         db.ContainerTypeTask,
+					}))
+				})
+
+				It("constructs the next step correctly", func() {
+					Expect(fakeStepFactory.TaskStepCallCount()).To(Equal(4))
+					plan, build, containerMetadata, _ := fakeStepFactory.TaskStepArgsForCall(3)
+					Expect(build).To(Equal(fakeBuild))
+					Expect(plan).To(Equal(nextTaskPlan))
+					Expect(containerMetadata).To(Equal(db.ContainerMetadata{
+						PipelineID:   2222,
+						PipelineName: "some-pipeline",
+						JobID:        3333,
+						JobName:      "some-job",
+						BuildID:      4444,
+						BuildName:    "42",
+						StepName:     "some-next-task",
+						Type:         db.ContainerTypeTask,
+					}))
+				})
 			})
 		})
 
-		Context("when engine metadata is empty", func() {
+		Context("running try steps", func() {
+			var inputPlan atc.Plan
+
 			BeforeEach(func() {
-				dbBuild.PrivatePlanReturns("{}")
+				inputPlan = planFactory.NewPlan(atc.GetPlan{
+					Name: "some-input",
+				})
 
-				fakeDelegate := new(enginefakes.FakeBuildDelegate)
-				fakeDelegateFactory.DelegateReturns(fakeDelegate)
-
-				inputStep := new(execfakes.FakeStep)
-				inputStep.SucceededReturns(true)
-				fakeFactory.GetReturns(inputStep)
+				expectedPlan = planFactory.NewPlan(atc.TryPlan{
+					Step: inputPlan,
+				})
 			})
 
-			It("does not error", func() {
-				_, err := execEngine.LookupBuild(logger, dbBuild)
-				Expect(err).NotTo(HaveOccurred())
+			It("constructs the step correctly", func() {
+				Expect(fakeStepFactory.GetStepCallCount()).To(Equal(1))
+				plan, build, stepMetadata, containerMetadata, _ := fakeStepFactory.GetStepArgsForCall(0)
+				Expect(build).To(Equal(fakeBuild))
+				Expect(plan).To(Equal(inputPlan))
+				Expect(stepMetadata).To(Equal(expectedMetadata))
+				Expect(containerMetadata).To(Equal(db.ContainerMetadata{
+					Type:         db.ContainerTypeGet,
+					StepName:     "some-input",
+					PipelineID:   2222,
+					PipelineName: "some-pipeline",
+					JobID:        3333,
+					JobName:      "some-job",
+					BuildID:      4444,
+					BuildName:    "42",
+				}))
+			})
+		})
+	})
+
+	Describe("StepMetadata", func() {
+		var stepMetadata builder.StepMetadata
+
+		Describe("Env", func() {
+			Context("when populating fields", func() {
+				BeforeEach(func() {
+					stepMetadata = builder.StepMetadata{
+						BuildID:      1,
+						PipelineName: "some-pipeline-name",
+						JobName:      "some-job-name",
+						BuildName:    "42",
+						ExternalURL:  "http://www.example.com",
+						TeamName:     "some-team",
+					}
+				})
+
+				It("returns the specified values", func() {
+					Expect(stepMetadata.Env()).To(Equal([]string{
+						"BUILD_ID=1",
+						"BUILD_PIPELINE_NAME=some-pipeline-name",
+						"BUILD_JOB_NAME=some-job-name",
+						"BUILD_NAME=42",
+						"ATC_EXTERNAL_URL=http://www.example.com",
+						"BUILD_TEAM_NAME=some-team",
+					}))
+				})
+			})
+
+			Context("when fields are empty", func() {
+				BeforeEach(func() {
+					stepMetadata = builder.StepMetadata{
+						BuildID: 1,
+					}
+				})
+				It("does not include fields that are not set", func() {
+					Expect(stepMetadata.Env()).To(Equal([]string{
+						"BUILD_ID=1",
+					}))
+				})
 			})
 		})
 	})

@@ -29,7 +29,11 @@ type DelegateFactory interface {
 	BuildStepDelegate(db.Build, atc.PlanID) exec.BuildStepDelegate
 }
 
-func NewStepBuilder(stepFactory StepFactory, delegateFactory DelegateFactory, externalURL string) *stepBuilder {
+func NewStepBuilder(
+	stepFactory StepFactory,
+	delegateFactory DelegateFactory,
+	externalURL string,
+) *stepBuilder {
 	return &stepBuilder{
 		stepFactory:     stepFactory,
 		delegateFactory: delegateFactory,
@@ -43,9 +47,15 @@ type stepBuilder struct {
 	externalURL     string
 }
 
-func (builder *stepBuilder) BuildStep(build db.Build) (exec.Step, error) {
+func (builder *stepBuilder) BuildStep(build db.Build) exec.Step {
 
-	return builder.buildStep(build, build.PrivatePlan()), nil
+	plan := atc.Plan{}
+
+	if build != nil {
+		plan = build.PrivatePlan()
+	}
+
+	return builder.buildStep(build, plan)
 }
 
 func (builder *stepBuilder) buildStep(build db.Build, plan atc.Plan) exec.Step {
