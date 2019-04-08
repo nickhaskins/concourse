@@ -23,5 +23,13 @@ func (a *artifactCollector) Run(ctx context.Context) error {
 	logger.Debug("start")
 	defer logger.Debug("done")
 
-	return a.artifactLifecycle.RemoveExpiredArtifacts()
+	err := a.artifactLifecycle.RemoveExpiredArtifacts()
+	if err != nil {
+		return nil
+	}
+
+	err = a.artifactLifecycle.RemoveUnassociatedArtifacts()
+	if err != nil {
+		return nil
+	}
 }

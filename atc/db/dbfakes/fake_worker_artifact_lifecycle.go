@@ -2,9 +2,9 @@
 package dbfakes
 
 import (
-	sync "sync"
+	"sync"
 
-	db "github.com/concourse/concourse/atc/db"
+	"github.com/concourse/concourse/atc/db"
 )
 
 type FakeWorkerArtifactLifecycle struct {
@@ -16,6 +16,16 @@ type FakeWorkerArtifactLifecycle struct {
 		result1 error
 	}
 	removeExpiredArtifactsReturnsOnCall map[int]struct {
+		result1 error
+	}
+	RemoveUnassociatedArtifactsStub        func() error
+	removeUnassociatedArtifactsMutex       sync.RWMutex
+	removeUnassociatedArtifactsArgsForCall []struct {
+	}
+	removeUnassociatedArtifactsReturns struct {
+		result1 error
+	}
+	removeUnassociatedArtifactsReturnsOnCall map[int]struct {
 		result1 error
 	}
 	invocations      map[string][][]interface{}
@@ -74,11 +84,65 @@ func (fake *FakeWorkerArtifactLifecycle) RemoveExpiredArtifactsReturnsOnCall(i i
 	}{result1}
 }
 
+func (fake *FakeWorkerArtifactLifecycle) RemoveUnassociatedArtifacts() error {
+	fake.removeUnassociatedArtifactsMutex.Lock()
+	ret, specificReturn := fake.removeUnassociatedArtifactsReturnsOnCall[len(fake.removeUnassociatedArtifactsArgsForCall)]
+	fake.removeUnassociatedArtifactsArgsForCall = append(fake.removeUnassociatedArtifactsArgsForCall, struct {
+	}{})
+	fake.recordInvocation("RemoveUnassociatedArtifacts", []interface{}{})
+	fake.removeUnassociatedArtifactsMutex.Unlock()
+	if fake.RemoveUnassociatedArtifactsStub != nil {
+		return fake.RemoveUnassociatedArtifactsStub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	fakeReturns := fake.removeUnassociatedArtifactsReturns
+	return fakeReturns.result1
+}
+
+func (fake *FakeWorkerArtifactLifecycle) RemoveUnassociatedArtifactsCallCount() int {
+	fake.removeUnassociatedArtifactsMutex.RLock()
+	defer fake.removeUnassociatedArtifactsMutex.RUnlock()
+	return len(fake.removeUnassociatedArtifactsArgsForCall)
+}
+
+func (fake *FakeWorkerArtifactLifecycle) RemoveUnassociatedArtifactsCalls(stub func() error) {
+	fake.removeUnassociatedArtifactsMutex.Lock()
+	defer fake.removeUnassociatedArtifactsMutex.Unlock()
+	fake.RemoveUnassociatedArtifactsStub = stub
+}
+
+func (fake *FakeWorkerArtifactLifecycle) RemoveUnassociatedArtifactsReturns(result1 error) {
+	fake.removeUnassociatedArtifactsMutex.Lock()
+	defer fake.removeUnassociatedArtifactsMutex.Unlock()
+	fake.RemoveUnassociatedArtifactsStub = nil
+	fake.removeUnassociatedArtifactsReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeWorkerArtifactLifecycle) RemoveUnassociatedArtifactsReturnsOnCall(i int, result1 error) {
+	fake.removeUnassociatedArtifactsMutex.Lock()
+	defer fake.removeUnassociatedArtifactsMutex.Unlock()
+	fake.RemoveUnassociatedArtifactsStub = nil
+	if fake.removeUnassociatedArtifactsReturnsOnCall == nil {
+		fake.removeUnassociatedArtifactsReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.removeUnassociatedArtifactsReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeWorkerArtifactLifecycle) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
 	fake.removeExpiredArtifactsMutex.RLock()
 	defer fake.removeExpiredArtifactsMutex.RUnlock()
+	fake.removeUnassociatedArtifactsMutex.RLock()
+	defer fake.removeUnassociatedArtifactsMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

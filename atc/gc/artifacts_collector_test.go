@@ -26,5 +26,12 @@ var _ = Describe("ArtifactCollector", func() {
 
 			Expect(fakeArtifactLifecycle.RemoveExpiredArtifactsCallCount()).To(Equal(1))
 		})
+
+		It("tells the artifact lifecycle to remove unassociated artifacts", func() {
+			err := collector.Run(context.TODO())
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeArtifactLifecycle.RemoveUnassociatedArtifactsCallCount()).To(Equal(1))
+		})
 	})
 })

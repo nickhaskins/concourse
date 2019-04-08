@@ -6,8 +6,9 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/concourse/concourse/atc"
 	"github.com/lib/pq"
+
+	"github.com/concourse/concourse/atc"
 )
 
 //go:generate counterfeiter . WorkerArtifact
@@ -57,7 +58,8 @@ func saveWorkerArtifact(tx Tx, conn Conn, atcArtifact atc.WorkerArtifact) (Worke
 	var artifactID int
 
 	values := map[string]interface{}{
-		"name": atcArtifact.Name,
+		"name":        atcArtifact.Name,
+		"worker_name": atcArtifact.WorkerName,
 	}
 
 	if atcArtifact.BuildID != 0 {
