@@ -24,46 +24,51 @@ var _ = FDescribe("Engine", func() {
 	var (
 		logger lager.Logger
 
-		fakeDBBuild     *dbfakes.FakeBuild
+		fakeBuild       *dbfakes.FakeBuild
 		fakeStepBuilder *enginefakes.FakeStepBuilder
-
-		engine Engine
 	)
 
 	BeforeEach(func() {
 		logger = lagertest.NewTestLogger("test")
 
-		fakeDBBuild = new(dbfakes.FakeBuild)
-		fakeDBBuild.IDReturns(128)
+		fakeBuild = new(dbfakes.FakeBuild)
+		fakeBuild.IDReturns(128)
 
 		fakeStepBuilder = new(enginefakes.FakeStepBuilder)
-
-		engine = NewEngine(fakeStepBuilder)
 	})
 
 	Describe("LookupBuild", func() {
 		var (
-			foundBuild Build
-			lookupErr  error
+			build Build
+			err   error
+
+			engine Engine
 		)
 
+		BeforeEach(func() {
+			engine = NewEngine(fakeStepBuilder)
+		})
+
 		JustBeforeEach(func() {
-			foundBuild, lookupErr = engine.LookupBuild(logger, fakeDBBuild)
+			build, err = engine.LookupBuild(logger, fakeBuild)
 		})
 
 		It("succeeds", func() {
-			Expect(lookupErr).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred())
 		})
 
 		It("returns a build", func() {
-			Expect(foundBuild).NotTo(BeNil())
+			Expect(build).NotTo(BeNil())
 		})
 	})
 
-	Describe("Builds", func() {
-		var build Build
-		var cancelled bool
-		var release chan bool
+	Describe("Build", func() {
+		var (
+			build     Build
+			release   chan bool
+			cancelled bool
+			waitGroup *sync.WaitGroup
+		)
 
 		BeforeEach(func() {
 
@@ -72,12 +77,12 @@ var _ = FDescribe("Engine", func() {
 
 			release = make(chan bool)
 			trackedStates := new(sync.Map)
-			waitGroup := new(sync.WaitGroup)
+			waitGroup = new(sync.WaitGroup)
 
 			build = NewBuild(
 				ctx,
 				cancel,
-				fakeDBBuild,
+				fakeBuild,
 				fakeStepBuilder,
 				release,
 				trackedStates,
@@ -102,23 +107,26 @@ var _ = FDescribe("Engine", func() {
 				BeforeEach(func() {
 					fakeLock = new(lockfakes.FakeLock)
 
-					fakeDBBuild.AcquireTrackingLockReturns(fakeLock, true, nil)
+					fakeBuild.AcquireTrackingLockReturns(fakeLock, true, nil)
 				})
 
 				Context("when the build is active", func() {
 					BeforeEach(func() {
-						fakeDBBuild.IsRunningReturns(true)
-						fakeDBBuild.ReloadReturns(true, nil)
+						fakeBuild.IsRunningReturns(true)
+						fakeBuild.ReloadReturns(true, nil)
 					})
 
-					Context("when finding the notifier succeeds", func() {
+					Context("when listening for aborts succeeds", func() {
+						var abort chan struct{}
 						var fakeNotifier *dbfakes.FakeNotifier
 
 						BeforeEach(func() {
-							fakeNotifier = new(dbfakes.FakeNotifier)
-							fakeNotifier.NotifyReturns(make(chan struct{}))
+							abort = make(chan struct{})
 
-							fakeDBBuild.AbortNotifierReturns(fakeNotifier, nil)
+							fakeNotifier = new(dbfakes.FakeNotifier)
+							fakeNotifier.NotifyReturns(abort)
+
+							fakeBuild.AbortNotifierReturns(fakeNotifier, nil)
 						})
 
 						Context("when converting the plan to a step succeeds", func() {
@@ -127,79 +135,121 @@ var _ = FDescribe("Engine", func() {
 							BeforeEach(func() {
 								fakeStep = new(execfakes.FakeStep)
 
-								fakeStepBuilder.BuildStepReturns(fakeStep, nil)
+								fakeStepBuilder.BuildStepReturns(fakeStep)
 							})
 
-							FContext("when builds are released", func() {
+							It("releases the lock", func() {
+								waitGroup.Wait()
+								Expect(fakeLock.ReleaseCallCount()).To(Equal(1))
+							})
+
+							It("closes the notifier", func() {
+								waitGroup.Wait()
+								Expect(fakeNotifier.CloseCallCount()).To(Equal(1))
+							})
+
+							Context("when the build is released", func() {
 								BeforeEach(func() {
+									readyToRelease := make(chan bool)
+
+									go func() {
+										<-readyToRelease
+										release <- true
+									}()
 
 									fakeStep.RunStub = func(context.Context, exec.RunState) error {
+										close(readyToRelease)
+										<-time.After(time.Hour)
+										return nil
+									}
+								})
+
+								It("does not finish the build", func() {
+									waitGroup.Wait()
+									Expect(fakeBuild.FinishCallCount()).To(Equal(0))
+								})
+							})
+
+							Context("when the build is aborted", func() {
+								BeforeEach(func() {
+									readyToAbort := make(chan bool)
+
+									go func() {
+										<-readyToAbort
+										abort <- struct{}{}
+									}()
+
+									fakeStep.RunStub = func(context.Context, exec.RunState) error {
+										close(readyToAbort)
 										<-time.After(time.Second)
 										return nil
 									}
-
-									go func() {
-										release <- true
-									}()
 								})
 
-								It("releases the lock", func() {
-									Expect(fakeLock.ReleaseCallCount()).To(Equal(1))
-								})
-
-								It("closes the notifier", func() {
-									Expect(fakeNotifier.CloseCallCount()).To(Equal(1))
+								It("cancels the context", func() {
+									waitGroup.Wait()
+									Expect(cancelled).To(BeTrue())
 								})
 							})
 
-							Context("when listening for aborts succeeds", func() {
-								var (
-									aborts chan struct{}
-								)
-
+							Context("when the build finishes without error", func() {
 								BeforeEach(func() {
-									aborts = make(chan struct{}, 1)
-
-									fakeNotifier.NotifyReturns(aborts)
+									fakeStep.RunReturns(nil)
 								})
 
-								It("listens for aborts", func() {
-									Expect(fakeDBBuild.AbortNotifierCallCount()).To(Equal(1))
-								})
-
-								Context("when the build is aborted", func() {
-
+								Context("when the build finishes successfully", func() {
 									BeforeEach(func() {
-										go func() {
-											aborts <- struct{}{}
-										}()
+										fakeStep.SucceededReturns(true)
 									})
 
-									It("releases the lock", func() {
-										Expect(fakeLock.ReleaseCallCount()).To(Equal(1))
+									It("finishes the build", func() {
+										waitGroup.Wait()
+										Expect(fakeBuild.FinishCallCount()).To(Equal(1))
+										Expect(fakeBuild.FinishArgsForCall(0)).To(Equal(db.BuildStatusSucceeded))
+									})
+								})
+
+								Context("when the build finishes woefully", func() {
+									BeforeEach(func() {
+										fakeStep.SucceededReturns(false)
 									})
 
-									It("closes the notifier", func() {
-										Eventually(func() int {
-											return fakeNotifier.CloseCallCount()
-										}).Should(Equal(1))
+									It("finishes the build", func() {
+										waitGroup.Wait()
+										Expect(fakeBuild.FinishCallCount()).To(Equal(1))
+										Expect(fakeBuild.FinishArgsForCall(0)).To(Equal(db.BuildStatusFailed))
 									})
+								})
+							})
 
-									// TODO flaky
-									It("cancels the context", func() {
-										Eventually(func() bool {
-											return cancelled
-										}).Should(BeTrue())
-									})
+							Context("when the build finishes with error", func() {
+								BeforeEach(func() {
+									fakeStep.RunReturns(errors.New("nope"))
+								})
+
+								It("finishes the build", func() {
+									waitGroup.Wait()
+									Expect(fakeBuild.FinishCallCount()).To(Equal(1))
+									Expect(fakeBuild.FinishArgsForCall(0)).To(Equal(db.BuildStatusErrored))
+								})
+							})
+
+							Context("when the build finishes with cancelled error", func() {
+								BeforeEach(func() {
+									fakeStep.RunReturns(context.Canceled)
+								})
+
+								It("finishes the build", func() {
+									waitGroup.Wait()
+									Expect(fakeBuild.FinishCallCount()).To(Equal(1))
+									Expect(fakeBuild.FinishArgsForCall(0)).To(Equal(db.BuildStatusAborted))
 								})
 							})
 						})
 
 						Context("when listening for aborts fails", func() {
-							disaster := errors.New("oh no!")
-
 							BeforeEach(func() {
-								fakeDBBuild.AbortNotifierReturns(nil, disaster)
+								fakeBuild.AbortNotifierReturns(nil, errors.New("nope"))
 							})
 
 							It("releases the lock", func() {
@@ -211,7 +261,7 @@ var _ = FDescribe("Engine", func() {
 
 				Context("when the build is not yet active", func() {
 					BeforeEach(func() {
-						fakeDBBuild.ReloadReturns(true, nil)
+						fakeBuild.ReloadReturns(true, nil)
 					})
 
 					It("does not build the step", func() {
@@ -225,8 +275,8 @@ var _ = FDescribe("Engine", func() {
 
 				Context("when the build has already finished", func() {
 					BeforeEach(func() {
-						fakeDBBuild.ReloadReturns(true, nil)
-						fakeDBBuild.StatusReturns(db.BuildStatusSucceeded)
+						fakeBuild.ReloadReturns(true, nil)
+						fakeBuild.StatusReturns(db.BuildStatusSucceeded)
 					})
 
 					It("does not build the step", func() {
@@ -240,7 +290,7 @@ var _ = FDescribe("Engine", func() {
 
 				Context("when the build is no longer in the database", func() {
 					BeforeEach(func() {
-						fakeDBBuild.ReloadReturns(false, nil)
+						fakeBuild.ReloadReturns(false, nil)
 					})
 
 					It("does not build the step", func() {
@@ -255,7 +305,7 @@ var _ = FDescribe("Engine", func() {
 
 			Context("when acquiring the lock fails", func() {
 				BeforeEach(func() {
-					fakeDBBuild.AcquireTrackingLockReturns(nil, false, errors.New("no lock for you"))
+					fakeBuild.AcquireTrackingLockReturns(nil, false, errors.New("no lock for you"))
 				})
 
 				It("does not build the step", func() {

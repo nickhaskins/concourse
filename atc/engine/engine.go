@@ -23,14 +23,13 @@ type Engine interface {
 //go:generate counterfeiter . Build
 
 type Build interface {
-	Abort(lager.Logger) error
 	Resume(lager.Logger)
 }
 
 //go:generate counterfeiter . StepBuilder
 
 type StepBuilder interface {
-	BuildStep(db.Build) (exec.Step, error)
+	BuildStep(db.Build) exec.Step
 }
 
 func NewEngine(builder StepBuilder) Engine {
@@ -112,11 +111,6 @@ type execBuild struct {
 	waitGroup     *sync.WaitGroup
 }
 
-func (build *execBuild) Abort(lager.Logger) error {
-	build.cancel()
-	return nil
-}
-
 func (build *execBuild) Resume(logger lager.Logger) {
 	build.waitGroup.Add(1)
 	defer build.waitGroup.Done()
@@ -164,17 +158,6 @@ func (build *execBuild) Resume(logger lager.Logger) {
 
 	defer notifier.Close()
 
-	step, err := build.builder.BuildStep(build.build)
-	if err != nil {
-		logger.Error("failed-to-build-step", err)
-		return
-	}
-
-	wait := make(chan bool)
-	defer close(wait)
-
-	go build.watchAborted(logger, notifier, wait)
-
 	build.trackStarted(logger)
 	defer build.trackFinished(logger)
 
@@ -183,7 +166,21 @@ func (build *execBuild) Resume(logger lager.Logger) {
 	state := build.runState()
 	defer build.clearRunState()
 
-	done := make(chan error, 1)
+	noleak := make(chan bool)
+	defer close(noleak)
+
+	go func() {
+		select {
+		case <-noleak:
+		case <-notifier.Notify():
+			logger.Info("aborting")
+			build.cancel()
+		}
+	}()
+
+	step := build.builder.BuildStep(build.build)
+
+	done := make(chan error)
 	go func() {
 		ctx := lagerctx.NewContext(build.ctx, logger)
 		done <- step.Run(ctx, state)
@@ -192,6 +189,7 @@ func (build *execBuild) Resume(logger lager.Logger) {
 	select {
 	case <-build.release:
 		logger.Info("releasing")
+
 	case err = <-done:
 		build.finish(logger.Session("finish"), err, step.Succeeded())
 	}
@@ -219,21 +217,6 @@ func (build *execBuild) finish(logger lager.Logger, err error, succeeded bool) {
 func (build *execBuild) saveStatus(logger lager.Logger, status atc.BuildStatus) {
 	if err := build.build.Finish(db.BuildStatus(status)); err != nil {
 		logger.Error("failed-to-finish-build", err)
-	}
-}
-
-func (build *execBuild) watchAborted(logger lager.Logger, notifier db.Notifier, done chan bool) {
-	select {
-	case <-notifier.Notify():
-		logger.Info("aborting")
-
-		err := build.Abort(logger)
-		if err != nil {
-			logger.Error("failed-to-abort", err)
-		}
-	case <-build.release:
-		logger.Info("releasing")
-	case <-done:
 	}
 }
 

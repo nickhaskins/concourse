@@ -10,24 +10,22 @@ import (
 )
 
 type FakeStepBuilder struct {
-	BuildStepStub        func(db.Build) (exec.Step, error)
+	BuildStepStub        func(db.Build) exec.Step
 	buildStepMutex       sync.RWMutex
 	buildStepArgsForCall []struct {
 		arg1 db.Build
 	}
 	buildStepReturns struct {
 		result1 exec.Step
-		result2 error
 	}
 	buildStepReturnsOnCall map[int]struct {
 		result1 exec.Step
-		result2 error
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeStepBuilder) BuildStep(arg1 db.Build) (exec.Step, error) {
+func (fake *FakeStepBuilder) BuildStep(arg1 db.Build) exec.Step {
 	fake.buildStepMutex.Lock()
 	ret, specificReturn := fake.buildStepReturnsOnCall[len(fake.buildStepArgsForCall)]
 	fake.buildStepArgsForCall = append(fake.buildStepArgsForCall, struct {
@@ -39,10 +37,10 @@ func (fake *FakeStepBuilder) BuildStep(arg1 db.Build) (exec.Step, error) {
 		return fake.BuildStepStub(arg1)
 	}
 	if specificReturn {
-		return ret.result1, ret.result2
+		return ret.result1
 	}
 	fakeReturns := fake.buildStepReturns
-	return fakeReturns.result1, fakeReturns.result2
+	return fakeReturns.result1
 }
 
 func (fake *FakeStepBuilder) BuildStepCallCount() int {
@@ -51,7 +49,7 @@ func (fake *FakeStepBuilder) BuildStepCallCount() int {
 	return len(fake.buildStepArgsForCall)
 }
 
-func (fake *FakeStepBuilder) BuildStepCalls(stub func(db.Build) (exec.Step, error)) {
+func (fake *FakeStepBuilder) BuildStepCalls(stub func(db.Build) exec.Step) {
 	fake.buildStepMutex.Lock()
 	defer fake.buildStepMutex.Unlock()
 	fake.BuildStepStub = stub
@@ -64,30 +62,27 @@ func (fake *FakeStepBuilder) BuildStepArgsForCall(i int) db.Build {
 	return argsForCall.arg1
 }
 
-func (fake *FakeStepBuilder) BuildStepReturns(result1 exec.Step, result2 error) {
+func (fake *FakeStepBuilder) BuildStepReturns(result1 exec.Step) {
 	fake.buildStepMutex.Lock()
 	defer fake.buildStepMutex.Unlock()
 	fake.BuildStepStub = nil
 	fake.buildStepReturns = struct {
 		result1 exec.Step
-		result2 error
-	}{result1, result2}
+	}{result1}
 }
 
-func (fake *FakeStepBuilder) BuildStepReturnsOnCall(i int, result1 exec.Step, result2 error) {
+func (fake *FakeStepBuilder) BuildStepReturnsOnCall(i int, result1 exec.Step) {
 	fake.buildStepMutex.Lock()
 	defer fake.buildStepMutex.Unlock()
 	fake.BuildStepStub = nil
 	if fake.buildStepReturnsOnCall == nil {
 		fake.buildStepReturnsOnCall = make(map[int]struct {
 			result1 exec.Step
-			result2 error
 		})
 	}
 	fake.buildStepReturnsOnCall[i] = struct {
 		result1 exec.Step
-		result2 error
-	}{result1, result2}
+	}{result1}
 }
 
 func (fake *FakeStepBuilder) Invocations() map[string][][]interface{} {
